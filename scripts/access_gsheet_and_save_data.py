@@ -1,4 +1,12 @@
 """
+            _                      
+   _____   (_)  _____  _____  ____ 
+  / ___/  / /  / ___/ / ___/ / __ \
+ / /     / /  / /__  / /__  / /_/ /
+/_/     /_/   \___/  \___/  \____/ 
+                                   
+© r1cco.com
+
 Google Sheets Access Module
 
 This module provides functionality to authenticate with Google Sheets API and extract information

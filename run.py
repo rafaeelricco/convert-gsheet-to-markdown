@@ -1,4 +1,12 @@
 """
+            _                      
+   _____   (_)  _____  _____  ____ 
+  / ___/  / /  / ___/ / ___/ / __ \
+ / /     / /  / /__  / /__  / /_/ /
+/_/     /_/   \___/  \___/  \____/ 
+                                   
+© r1cco.com
+
 Script Runner Module
 
 This module provides functionality to sequentially execute Python scripts while handling errors

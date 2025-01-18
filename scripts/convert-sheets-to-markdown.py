@@ -1,4 +1,12 @@
 """
+            _                      
+   _____   (_)  _____  _____  ____ 
+  / ___/  / /  / ___/ / ___/ / __ \
+ / /     / /  / /__  / /__  / /_/ /
+/_/     /_/   \___/  \___/  \____/ 
+                                   
+© r1cco.com
+                            
 Google Sheets to Markdown Converter Module
 
 This module provides functionality to convert Google Sheets data into formatted Markdown tables.

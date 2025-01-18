@@ -8,6 +8,9 @@ from dotenv import load_dotenv
 import pickle
 import google.generativeai as genai
 import sys
+import time
+import random
+import threading
 
 load_dotenv()
 
@@ -17,20 +20,95 @@ SCOPES = [
 ]
 
 
+class ProgressBar:
+    def __init__(self, total_width=80):
+        self.total_width = total_width
+        self.current_step = ""
+        self.progress = 0
+        self._stop_fake_progress = False
+        self._is_running_fake = False
+        self._current_thread = None
+        self._step_printed = False
+
+    def update(self, step, progress=None):
+        """Atualiza a barra de progresso com uma nova etapa e progresso"""
+        if step != self.current_step:
+            if self.current_step and self.progress < 100:
+                # Força completar a etapa anterior
+                self.update(self.current_step, 100)
+            sys.stdout.write(f"\r==> {step}\n")
+            self.current_step = step
+            self.progress = 0
+            self._step_printed = True
+
+        if progress is not None:
+            self.progress = min(100, max(0, progress))
+
+            # Calcula o tamanho da barra de progresso
+            filled_width = int(self.total_width * self.progress / 100)
+            empty_width = self.total_width - filled_width
+
+            # Cria a barra de progresso
+            bar = "#" * filled_width + " " * empty_width
+
+            # Atualiza a barra na mesma linha
+            sys.stdout.write(f"\r{bar} {self.progress:.1f}%")
+            sys.stdout.flush()
+
+            if self.progress == 100:
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                self._stop_fake_progress = True
+                self._step_printed = False
+
+    def start_fake_progress(self, step, start_from=0, until=80):
+        """Inicia um progresso falso em background"""
+        # Aguarda a conclusão de qualquer thread anterior
+        if self._current_thread and self._current_thread.is_alive():
+            self._stop_fake_progress = True
+            self._current_thread.join()
+
+        self._stop_fake_progress = False
+        self._is_running_fake = True
+
+        def fake_progress_worker():
+            current_progress = start_from
+            if not self._step_printed:
+                self.update(step, current_progress)
+            while not self._stop_fake_progress and current_progress < until:
+                time.sleep(
+                    random.uniform(1, 5)
+                )  # Intervalo aleatório entre 1 e 5 segundos
+                if not self._stop_fake_progress:
+                    current_progress += 1
+                    self.update(step, current_progress)
+            self._is_running_fake = False
+
+        self._current_thread = threading.Thread(target=fake_progress_worker)
+        self._current_thread.daemon = True
+        self._current_thread.start()
+
+    def wait_for_fake_progress(self):
+        """Aguarda a conclusão do progresso falso atual"""
+        if self._current_thread and self._current_thread.is_alive():
+            self._current_thread.join()
+
+
 def get_sheet_metadata(progress):
     """Carrega os metadados da planilha do arquivo JSON"""
-    progress.update("Carregando metadados da planilha", 0)
+    progress.start_fake_progress("Carregando metadados da planilha")
     json_path = os.path.join("json", "sheet_info.json")
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     progress.update("Carregando metadados da planilha", 100)
+    progress.wait_for_fake_progress()  # Aguarda conclusão
     return data
 
 
 def get_sheet_data(service, spreadsheet_id, sheet_title, progress):
     """Recupera todos os dados da planilha, incluindo fórmulas e validações"""
     try:
-        progress.update("Obtendo dados da planilha", 0)
+        progress.start_fake_progress("Obtendo dados da planilha")
         result = (
             service.spreadsheets()
             .get(
@@ -38,7 +116,7 @@ def get_sheet_data(service, spreadsheet_id, sheet_title, progress):
             )
             .execute()
         )
-        progress.update("Obtendo dados da planilha", 50)
+        progress.update("Obtendo dados da planilha", 85)
 
         sheet_data = result["sheets"][0]["data"][0]
         rows = sheet_data.get("rowData", [])
@@ -71,6 +149,7 @@ def get_sheet_data(service, spreadsheet_id, sheet_title, progress):
             formatted_data.append(row_data)
 
         progress.update("Obtendo dados da planilha", 100)
+        progress.wait_for_fake_progress()  # Aguarda conclusão
         return formatted_data
 
     except Exception as e:
@@ -101,7 +180,9 @@ def format_to_markdown(data):
 def format_with_gemini(data, progress):
     """Usa a IA do Gemini para formatar e organizar os dados"""
     try:
-        progress.update("Formatando dados com Gemini", 0)
+        progress.start_fake_progress(
+            "Formatando dados com Gemini", start_from=0, until=70
+        )
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
         model = genai.GenerativeModel("gemini-1.5-pro")
 
@@ -115,49 +196,15 @@ def format_with_gemini(data, progress):
         {data_str}
         """
 
-        progress.update("Formatando dados com Gemini", 50)
+        progress.update("Formatando dados com Gemini", 80)
         response = model.generate_content(prompt)
         progress.update("Formatando dados com Gemini", 100)
+        progress.wait_for_fake_progress()  # Aguarda conclusão
         return response.text
 
     except Exception as e:
         print(f"Erro ao usar Gemini AI: {e}")
         return format_to_markdown(data)
-
-
-class ProgressBar:
-    def __init__(self, total_width=80):
-        self.total_width = total_width
-        self.current_step = ""
-        self.progress = 0
-
-    def update(self, step, progress=None):
-        """Atualiza a barra de progresso com uma nova etapa e progresso"""
-        if step != self.current_step:
-            # Limpa as linhas anteriores
-            sys.stdout.write("\r")
-            sys.stdout.write("\033[K")  # Limpa a linha atual
-            sys.stdout.write(f"==> {step}\n")
-            self.current_step = step
-
-        if progress is not None:
-            self.progress = min(100, max(0, progress))
-
-            # Calcula o tamanho da barra de progresso
-            bar_width = self.total_width
-            filled_width = int(bar_width * self.progress / 100)
-
-            # Cria a barra de progresso
-            bar = "#" * filled_width + " " * (bar_width - filled_width)
-
-            # Move o cursor para cima uma linha e atualiza a barra
-            sys.stdout.write("\r")
-            sys.stdout.write(f"{bar} {self.progress:0.1f}%")
-            sys.stdout.flush()
-
-            if self.progress == 100:
-                sys.stdout.write("\n")
-                sys.stdout.flush()
 
 
 def main():
@@ -180,11 +227,12 @@ def main():
                 creds = pickle.load(token)
 
         if not creds or not creds.valid:
-            progress.update("Atualizando credenciais", 50)
             if creds and creds.expired and creds.refresh_token:
+                progress.start_fake_progress("Atualizando credenciais")
                 creds.refresh(Request())
+                progress.update("Atualizando credenciais", 100)
             else:
-                progress.update("Realizando nova autenticação", 70)
+                progress.start_fake_progress("Realizando nova autenticação")
                 with open(client_secrets_path, "r") as f:
                     client_config = json.load(f)
 
@@ -193,6 +241,7 @@ def main():
 
                 with open(token_path, "wb") as token:
                     pickle.dump(creds, token)
+                progress.update("Realizando nova autenticação", 100)
 
         service = build("sheets", "v4", credentials=creds)
 
@@ -204,7 +253,7 @@ def main():
             markdown_table = format_with_gemini(data, progress)
 
             # Salva em um arquivo na pasta output
-            progress.update("Salvando arquivo markdown", 0)
+            progress.start_fake_progress("Salvando arquivo markdown")
             output_file = os.path.join(
                 "output", f"{sheet_title.lower().replace(' ', '_')}_table.md"
             )

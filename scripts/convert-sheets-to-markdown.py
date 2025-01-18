@@ -183,7 +183,7 @@ def format_with_gemini(data, progress):
 
         # Configuração da API do Gemini
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel("gemini-pro")
+        model = genai.GenerativeModel("gemini-1.5-pro")
 
         # Converte os dados para uma string formatada
         data_str = "\n".join([", ".join(row) for row in data])
@@ -289,16 +289,12 @@ def main():
             print("Nenhum dado foi recuperado da planilha.")
             return
 
-        # Formata os dados em Markdown
-        markdown_data = format_to_markdown(sheet_data)
-        print("\nDados formatados em Markdown:")
-        print(markdown_data)
-
         # Formata os dados com o Gemini
         gemini_formatted_data = format_with_gemini(sheet_data, progress)
-        if gemini_formatted_data:
-            print("\nDados formatados com Gemini:")
-            print(gemini_formatted_data)
+
+        # Salva os dados formatados em um arquivo .md
+        with open("output/critérios_de_retorno_table.md", "w", encoding="utf-8") as f:
+            f.write(gemini_formatted_data)
 
     except Exception as e:
         print(f"\nErro durante a execução do script: {e}")

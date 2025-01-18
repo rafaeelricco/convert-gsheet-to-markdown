@@ -11,6 +11,9 @@ import sys
 import time
 import random
 import threading
+import google.generativeai as genai
+
+os.environ["GRPC_PYTHON_LOG_LEVEL"] = "error"
 
 load_dotenv()
 
@@ -154,26 +157,6 @@ def get_sheet_data(service, spreadsheet_id, sheet_title, progress):
         return None
 
 
-def format_to_markdown(data):
-    """Formata os dados em uma tabela markdown"""
-    if not data or len(data) == 0:
-        return "Nenhum dado encontrado."
-
-    # Primeira linha como cabeçalho
-    headers = data[0]
-    content = data[1:]
-
-    # Cria o cabeçalho da tabela
-    markdown = "| " + " | ".join(str(h) for h in headers) + " |\n"
-    markdown += "|" + "|".join(["---"] * len(headers)) + "|\n"
-
-    # Adiciona as linhas de dados
-    for row in content:
-        markdown += "| " + " | ".join(str(cell) for cell in row) + " |\n"
-
-    return markdown
-
-
 def format_with_gemini(data, progress):
     """Usa a IA do Gemini para formatar os dados de forma mais legível e organizada."""
     try:
@@ -182,8 +165,53 @@ def format_with_gemini(data, progress):
         )
 
         # Configuração da API do Gemini
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel("gemini-1.5-pro")
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"), transport="grpc")
+        model = genai.GenerativeModel(
+            "gemini-1.5-pro",
+            generation_config={
+                "max_output_tokens": 2000000,
+                "temperature": 0.3,  # Reduzido ainda mais para maior consistência
+                "top_p": 0.9,
+                "top_k": 40,
+            },
+            system_instruction="""
+    Você é um especialista em converter dados CSV para tabelas markdown. Sua tarefa principal é:
+
+    1. Criar tabelas markdown que preservem o layout visual da planilha original:
+       - Usar | para delimitar colunas
+       - Usar alinhamento apropriado (:--, :--:, --:)
+       - Manter proporções das colunas quando possível
+
+    2. Regras específicas para checkboxes em tabelas:
+       - Usar [ ] para checkboxes vazios
+       - Usar [x] para checkboxes marcados
+       - Alinhar checkboxes ao centro da célula
+       - Manter espaçamento consistente
+
+    3. Formatação de tabela:
+       | Coluna 1 | Coluna 2 | Checkbox |
+       |:---------|:--------:|:--------:|
+       | Dado 1   |  Valor   |   [ ]    |
+       | Dado 2   |  Valor   |   [x]    |
+
+    4. Requisitos obrigatórios:
+       - Preservar cabeçalhos originais
+       - Manter alinhamento consistente
+       - Incluir linha de formatação após cabeçalho
+       - Respeitar tipos de dados por coluna
+       - Manter fórmulas em `código`
+       - Preservar hierarquia de dados
+
+    5. Formatação de células especiais:
+       - Números: alinhados à direita
+       - Texto: alinhado à esquerda
+       - Checkboxes/Status: centralizado
+       - Fórmulas: em `código` e alinhadas à direita
+
+    Retorne apenas as tabelas markdown formatadas, sem texto adicional ou explicações.
+    Mantenha a estrutura visual o mais próxima possível da planilha original.
+    """,
+        )
 
         # Converte os dados para uma string formatada
         data_str = "\n".join([", ".join(row) for row in data])
@@ -268,6 +296,89 @@ def authenticate_google(progress):
         raise Exception(f"Erro na autenticação do Google: {str(e)}")
 
 
+def generate_file_name_with_ai(data, progress):
+    """Gera um nome de arquivo com a IA"""
+    try:
+        progress.start_fake_progress("Gerando nome do arquivo", start_from=0, until=90)
+
+        genai.configure(
+            api_key=os.getenv("GEMINI_API_KEY"), transport="rest"
+        )  # Mudando para REST
+        model = genai.GenerativeModel(
+            "gemini-1.5-pro",
+            generation_config={
+                "max_output_tokens": 100,  # Reduzindo tokens já que só precisamos do nome
+                "temperature": 0.5,
+                "top_p": 0.95,
+            },
+        )
+
+        # Simplificando os dados para o prompt
+        sample_data = (
+            str(data[:3]) if len(data) > 3 else str(data)
+        )  # Usando apenas as primeiras 3 linhas
+
+        prompt = f"""
+        Generate a simple markdown filename based on this spreadsheet data:
+        {sample_data}
+
+        Requirements:
+        - Use only lowercase letters, numbers and underscores
+        - Must end with .md
+        - Maximum 50 characters
+        - No special characters
+        - No spaces
+        """
+
+        response = model.generate_content(prompt)
+        file_name = response.text.strip().lower()
+
+        # Garantindo que o arquivo termine com .md
+        if not file_name.endswith(".md"):
+            file_name += ".md"
+
+        # Limpando o nome do arquivo
+        file_name = "".join(c for c in file_name if c.isalnum() or c in ["_", "."])
+
+        progress.update("Gerando nome do arquivo", 100)
+        progress.wait_for_fake_progress()
+
+        return file_name
+
+    except Exception as e:
+        progress.update("Erro ao gerar nome do arquivo", 100)
+        print(f"\nErro ao gerar nome do arquivo: {e}")
+        return "output.md"  # Nome padrão em caso de erro
+
+
+def mark_identifiers(data):
+    """Marca elementos especiais da planilha com formatação Markdown"""
+    formatted_data = []
+    for row in data:
+        formatted_row = []
+        for cell in row:
+            # Marca fórmulas (começam com =)
+            if "[formula:" in cell:
+                cell = f"`{cell}`"
+
+            # Marca opções de dropdown
+            if "[opções:" in cell:
+                # Extrai o valor e as opções
+                parts = cell.split(" [opções: ")
+                value = parts[0]
+                options = parts[1].rstrip("]")
+                cell = f"{value} <select>{options}</select>"
+
+            # Marca checkboxes (assumindo que são TRUE/FALSE ou similares)
+            if cell.upper() in ["TRUE", "FALSE", "VERDADEIRO", "FALSO"]:
+                is_checked = cell.upper() in ["TRUE", "VERDADEIRO"]
+                cell = "- [x]" if is_checked else "- [ ]"
+
+            formatted_row.append(cell)
+        formatted_data.append(formatted_row)
+    return formatted_data
+
+
 def main():
     """Função principal do script."""
     progress = ProgressBar()
@@ -289,17 +400,24 @@ def main():
             print("Nenhum dado foi recuperado da planilha.")
             return
 
+        # Marca os identificadores antes de enviar para o Gemini
+        marked_data = mark_identifiers(sheet_data)
+
         # Formata os dados com o Gemini
-        gemini_formatted_data = format_with_gemini(sheet_data, progress)
+        gemini_formatted_data = format_with_gemini(marked_data, progress)
+
+        # Gera o nome do arquivo usando a função (corrigido)
+        file_name = generate_file_name_with_ai(sheet_data, progress)
+        file_name = file_name.strip().replace(" ", "_")
 
         # Salva os dados formatados em um arquivo .md
-        with open("output/critérios_de_retorno_table.md", "w", encoding="utf-8") as f:
+        with open(f"output/{file_name}", "w", encoding="utf-8") as f:
             f.write(gemini_formatted_data)
 
     except Exception as e:
         print(f"\nErro durante a execução do script: {e}")
     finally:
-        progress.wait_for_fake_progress()  # Garante que o progresso falso seja finalizado
+        progress.wait_for_fake_progress()
 
 
 if __name__ == "__main__":

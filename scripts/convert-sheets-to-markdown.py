@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 import pickle
 import google.generativeai as genai
 import sys
-import time
 
 load_dotenv()
 

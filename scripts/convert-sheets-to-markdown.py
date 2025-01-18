@@ -36,7 +36,7 @@ class ProgressBar:
             if self.current_step and self.progress < 100:
                 # Força completar a etapa anterior
                 self.update(self.current_step, 100)
-            sys.stdout.write(f"\r==> {step}\n")
+            sys.stdout.write(f"\n==> {step}\n")
             self.current_step = step
             self.progress = 0
             self._step_printed = True
@@ -49,7 +49,7 @@ class ProgressBar:
             empty_width = self.total_width - filled_width
 
             # Cria a barra de progresso
-            bar = "#" * filled_width + " " * empty_width
+            bar = "#" * filled_width + "-" * empty_width
 
             # Atualiza a barra na mesma linha
             sys.stdout.write(f"\r{bar} {self.progress:.1f}%")
@@ -59,11 +59,9 @@ class ProgressBar:
                 sys.stdout.write("\n")
                 sys.stdout.flush()
                 self._stop_fake_progress = True
-                self._step_printed = False
 
     def start_fake_progress(self, step, start_from=0, until=80):
         """Inicia um progresso falso em background"""
-        # Aguarda a conclusão de qualquer thread anterior
         if self._current_thread and self._current_thread.is_alive():
             self._stop_fake_progress = True
             self._current_thread.join()
@@ -71,16 +69,15 @@ class ProgressBar:
         self._stop_fake_progress = False
         self._is_running_fake = True
 
+        # Força a atualização inicial
+        self.update(step, start_from)
+
         def fake_progress_worker():
             current_progress = start_from
-            if not self._step_printed:
-                self.update(step, current_progress)
             while not self._stop_fake_progress and current_progress < until:
-                time.sleep(
-                    random.uniform(1, 5)
-                )  # Intervalo aleatório entre 1 e 5 segundos
+                time.sleep(random.uniform(0.5, 2))
                 if not self._stop_fake_progress:
-                    current_progress += 1
+                    current_progress += random.uniform(0.5, 2)
                     self.update(step, current_progress)
             self._is_running_fake = False
 
@@ -178,95 +175,135 @@ def format_to_markdown(data):
 
 
 def format_with_gemini(data, progress):
-    """Usa a IA do Gemini para formatar e organizar os dados"""
+    """Usa a IA do Gemini para formatar os dados de forma mais legível e organizada."""
     try:
         progress.start_fake_progress(
-            "Formatando dados com Gemini", start_from=0, until=70
+            "Formatando dados com Gemini", start_from=10, until=90
         )
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel("gemini-1.5-pro")
 
-        data_str = "\n".join([",".join(map(str, row)) for row in data])
-        prompt = f"""
-        Por favor, organize e formate os seguintes dados em uma tabela markdown bem estruturada.
-        Os dados estão em formato CSV, onde a primeira linha representa os cabeçalhos.
-        Mantenha todas as informações originais, incluindo fórmulas e opções de dropdown.
-        
-        Dados:
+        # Configuração da API do Gemini
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        model = genai.GenerativeModel("gemini-pro")
+
+        # Converte os dados para uma string formatada
+        data_str = "\n".join([", ".join(row) for row in data])
+
+        # Prompt para o Gemini
+        prompt = f"""Aqui estão os dados de uma planilha:
         {data_str}
+
+        Por favor, formate esses dados de forma mais legível e organizada, destacando informações importantes e removendo redundâncias. Retorne o resultado em formato Markdown.
         """
 
-        progress.update("Formatando dados com Gemini", 80)
+        # Envia a solicitação para o Gemini
         response = model.generate_content(prompt)
+        formatted_data = response.text
+
         progress.update("Formatando dados com Gemini", 100)
         progress.wait_for_fake_progress()  # Aguarda conclusão
-        return response.text
+        return formatted_data
 
     except Exception as e:
-        print(f"Erro ao usar Gemini AI: {e}")
-        return format_to_markdown(data)
+        print(f"Erro ao formatar dados com Gemini: {e}")
+        return None
 
 
-def main():
-    """Função principal"""
+def authenticate_google(progress):
+    """Autentica o usuário no Google Sheets API."""
     try:
-        progress = ProgressBar()
-
-        # Carrega os metadados da planilha
-        sheet_info = get_sheet_metadata(progress)
-        spreadsheet_id = sheet_info["spreadsheet_id"]
-        sheet_title = sheet_info["sheet_title"]
-
-        # Autentica e cria o serviço
+        progress.update("Autenticando no Google", 0)
         creds = None
         token_path = os.path.join("json", "token.pickle")
         client_secrets_path = os.path.join("json", "client_secret.json")
 
-        if os.path.exists(token_path):
-            with open(token_path, "rb") as token:
-                creds = pickle.load(token)
+        # Verifica se o arquivo credentials.json existe
+        if not os.path.exists(client_secrets_path):
+            raise Exception("Arquivo client_secret.json não encontrado na pasta json/")
 
+        # Verifica e carrega o token existente
+        if os.path.exists(token_path):
+            try:
+                with open(token_path, "rb") as token:
+                    creds = pickle.load(token)
+                progress.update("Autenticando no Google", 30)
+            except Exception as e:
+                print(f"Erro ao ler token.pickle: {e}")
+                os.remove(token_path)
+                creds = None
+
+        # Se não houver credenciais válidas ou se estiverem expiradas
         if not creds or not creds.valid:
+            progress.update("Autenticando no Google", 50)
             if creds and creds.expired and creds.refresh_token:
-                progress.start_fake_progress("Atualizando credenciais")
-                creds.refresh(Request())
-                progress.update("Atualizando credenciais", 100)
-            else:
-                progress.start_fake_progress("Realizando nova autenticação")
+                try:
+                    creds.refresh(Request())
+                except Exception as e:
+                    print(f"Erro ao renovar token: {e}")
+                    creds = None
+
+            if not creds:
+                # Carrega as configurações do cliente OAuth2 do arquivo JSON
                 with open(client_secrets_path, "r") as f:
                     client_config = json.load(f)
 
                 flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
+                print("\nIniciando processo de autenticação...")
+                print(
+                    "Adicione o seguinte endereço de redirecionamento no Console do Google Cloud:"
+                )
+                print("http://localhost:8080/")
                 creds = flow.run_local_server(port=8080)
 
+                # Salva as credenciais para uso futuro
                 with open(token_path, "wb") as token:
                     pickle.dump(creds, token)
-                progress.update("Realizando nova autenticação", 100)
 
-        service = build("sheets", "v4", credentials=creds)
+            progress.update("Autenticando no Google", 90)
 
-        # Obtém os dados da planilha
-        data = get_sheet_data(service, spreadsheet_id, sheet_title, progress)
-
-        if data:
-            # Usa o Gemini para formatar os dados
-            markdown_table = format_with_gemini(data, progress)
-
-            # Salva em um arquivo na pasta output
-            progress.start_fake_progress("Salvando arquivo markdown")
-            output_file = os.path.join(
-                "output", f"{sheet_title.lower().replace(' ', '_')}_table.md"
-            )
-            with open(output_file, "w", encoding="utf-8") as f:
-                f.write(markdown_table)
-            progress.update("Salvando arquivo markdown", 100)
-
-            print(f"\nTabela markdown salva em {output_file}")
-            print("\nVisualização da tabela:")
-            print(markdown_table)
+        progress.update("Autenticando no Google", 100)
+        return creds
 
     except Exception as e:
-        print(f"\nErro durante a execução: {e}")
+        progress.update("Erro na autenticação", 100)
+        raise Exception(f"Erro na autenticação do Google: {str(e)}")
+
+
+def main():
+    """Função principal do script."""
+    progress = ProgressBar()
+
+    try:
+        # Autenticação no Google
+        creds = authenticate_google(progress)
+        service = build("sheets", "v4", credentials=creds)
+
+        # Carrega os metadados da planilha
+        sheet_metadata = get_sheet_metadata(progress)
+        spreadsheet_id = sheet_metadata["spreadsheet_id"]
+        sheet_title = sheet_metadata["sheet_title"]
+
+        # Obtém os dados da planilha
+        sheet_data = get_sheet_data(service, spreadsheet_id, sheet_title, progress)
+
+        if not sheet_data:
+            print("Nenhum dado foi recuperado da planilha.")
+            return
+
+        # Formata os dados em Markdown
+        markdown_data = format_to_markdown(sheet_data)
+        print("\nDados formatados em Markdown:")
+        print(markdown_data)
+
+        # Formata os dados com o Gemini
+        gemini_formatted_data = format_with_gemini(sheet_data, progress)
+        if gemini_formatted_data:
+            print("\nDados formatados com Gemini:")
+            print(gemini_formatted_data)
+
+    except Exception as e:
+        print(f"\nErro durante a execução do script: {e}")
+    finally:
+        progress.wait_for_fake_progress()  # Garante que o progresso falso seja finalizado
 
 
 if __name__ == "__main__":

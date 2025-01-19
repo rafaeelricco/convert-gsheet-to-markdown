@@ -108,7 +108,7 @@ class ProgressBar:
                 sys.stdout.flush()
                 self._stop_fake_progress = True
 
-    def progress(self, step, start_from=0, until=80):
+    def simulate_progress(self, step, start_from=0, until=80):
         """
         Start simulated progress tracking in the background.
 
@@ -158,7 +158,7 @@ def get_sheet_metadata(progress):
         FileNotFoundError: If the metadata JSON file is missing
         json.JSONDecodeError: If the metadata file is invalid
     """
-    progress.progress("Loading spreadsheet metadata...")
+    progress.simulate_progress("Loading spreadsheet metadata...")
     json_path = os.path.join("json", "sheet_info.json")
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -184,7 +184,7 @@ def get_sheet_data(service, spreadsheet_id, sheet_title, progress):
         Exception: If sheet access or data retrieval fails
     """
     try:
-        progress.progress("Retrieving spreadsheet data...")
+        progress.simulate_progress("Retrieving spreadsheet data...")
         result = (
             service.spreadsheets()
             .get(
@@ -249,7 +249,9 @@ def format_with_gemini(data, progress):
         Exception: If Gemini API encounters an error
     """
     try:
-        progress.progress("Formatting data with Gemini...", start_from=10, until=90)
+        progress.simulate_progress(
+            "Formatting data with Gemini...", start_from=10, until=90
+        )
 
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"), transport="grpc")
         model = genai.GenerativeModel(
@@ -400,7 +402,7 @@ def generate_file_name_with_ai(data, progress):
         and contain only alphanumeric characters.
     """
     try:
-        progress.progress("Generating file name...", start_from=0, until=90)
+        progress.simulate_progress("Generating file name...", start_from=0, until=90)
 
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"), transport="rest")
         model = genai.GenerativeModel(

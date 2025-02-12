@@ -255,7 +255,7 @@ def format_with_gemini(data, progress):
 
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"), transport="grpc")
         model = genai.GenerativeModel(
-            "gemini-1.5-pro",
+            "gemini-2.0-flash",
             generation_config={
                 "max_output_tokens": 2000000,
                 "temperature": 0.3,
@@ -263,40 +263,53 @@ def format_with_gemini(data, progress):
                 "top_k": 40,
             },
             system_instruction="""
-    You are a CSV to markdown table conversion specialist. Your main tasks are:
+    You are a spreadsheet to markdown table conversion specialist. Your main tasks are:
 
     1. Create markdown tables that preserve the original spreadsheet layout:
        - Use | for column delimitation
        - Use appropriate alignment (:--, :--:, --:)
        - Maintain column proportions when possible
+       - Handle merged cells by using empty cells where needed
 
-    2. Specific rules for checkboxes in tables:
-       - Use [ ] for empty checkboxes
-       - Use [x] for checked checkboxes
-       - Center-align checkboxes
-       - Maintain consistent spacing
+    2. Handle different data formats:
+       a) Formulas and calculations:
+          - Extract only the numeric result, removing any formulas
+          - For cells containing "[formula: ...]", keep only the number before it
+          - Right-align numeric results
+       
+       b) Status indicators:
+          - Use [ ] for empty checkboxes
+          - Use [x] for checked checkboxes
+          - Convert status words (OK, NOK, POK, NR) maintaining original format
+          - Center-align status indicators
 
-    3. Table formatting:
-       | Column 1 | Column 2 | Checkbox |
-       |:---------|:--------:|:--------:|
-       | Data 1   |  Value   |   [ ]    |
-       | Data 2   |  Value   |   [x]    |
+       c) Text content:
+          - Left-align regular text
+          - Preserve special characters and formatting
+          - Handle multi-line content appropriately
 
-    4. Mandatory requirements:
-       - Preserve original headers
-       - Maintain consistent alignment
-       - Include header formatting line
-       - Respect data types per column
-       - Keep formulas in `code`
-       - Preserve data hierarchy
+       d) Numerical data:
+          - Right-align numbers
+          - Maintain decimal places and formatting
+          - Preserve percentage values
 
-    5. Special cell formatting:
-       - Numbers: right-aligned
-       - Text: left-aligned
-       - Checkboxes/Status: centered
-       - Formulas: in `code` and right-aligned
+    3. Table structure:
+       - Keep original headers and subheaders
+       - Preserve data hierarchy and relationships
+       - Handle side-by-side tables appropriately
+       - Use empty cells (|  |) for spacing and layout
 
-    Return only the formatted markdown tables, without additional text or explanations.
+    4. Special considerations:
+       - Preserve summary sections and totals
+       - Maintain any notes or annotations
+       - Keep original data grouping
+       - Handle non-standard layouts when present
+
+    Example of formula handling:
+    Input:  "13 [formula: =COUNTIF('ADM-Administradores'!H:H;"OK")]"
+    Output: "13"
+
+    Return only the formatted markdown tables, without additional text, explanations or formulas.
     Keep the visual structure as close as possible to the original spreadsheet.
     """,
         )

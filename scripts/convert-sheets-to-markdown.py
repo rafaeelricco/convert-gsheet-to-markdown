@@ -337,11 +337,13 @@ def authenticate_google(progress):
     try:
         progress.update("Authenticating with Google", 0)
         creds = None
-        token_path = os.path.join("json", "token.pickle")
-        client_secrets_path = os.path.join("json", "client_secret.json")
-
-        if not os.path.exists(client_secrets_path):
-            raise Exception("client_secret.json not found in json/ directory")
+        json_dir = "json"
+        
+        # Create json directory if it doesn't exist
+        if not os.path.exists(json_dir):
+            os.makedirs(json_dir)
+        
+        token_path = os.path.join(json_dir, "token.pickle")
 
         if os.path.exists(token_path):
             try:
@@ -363,8 +365,18 @@ def authenticate_google(progress):
                     creds = None
 
             if not creds:
-                with open(client_secrets_path, "r") as f:
-                    client_config = json.load(f)
+                # Use environment variables directly
+                client_config = {
+                    "installed": {
+                        "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+                        "project_id": os.getenv("GOOGLE_PROJECT_ID"),
+                        "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
+                        "token_uri": os.getenv("GOOGLE_TOKEN_URI"),
+                        "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_PROVIDER_CERT_URL"),
+                        "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                        "redirect_uris": ["http://localhost:8080"]
+                    }
+                }
 
                 flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
                 print("\nStarting authentication process...")
@@ -501,6 +513,11 @@ def main():
     progress = ProgressBar()
 
     try:
+        # Create output directory if it doesn't exist
+        if not os.path.exists("output"):
+            os.makedirs("output")
+            print("Created output directory")
+
         creds = authenticate_google(progress)
         service = build("sheets", "v4", credentials=creds)
 

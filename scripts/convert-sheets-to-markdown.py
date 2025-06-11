@@ -263,41 +263,43 @@ def format_with_gemini(data, progress):
                 "top_k": 40,
             },
             system_instruction="""
-    You are a CSV to markdown table conversion specialist. Your main tasks are:
-
-    1. Create markdown tables that preserve the original spreadsheet layout:
-       - Use | for column delimitation
-       - Use appropriate alignment (:--, :--:, --:)
-       - Maintain column proportions when possible
-
-    2. Specific rules for checkboxes in tables:
-       - Use [ ] for empty checkboxes
-       - Use [x] for checked checkboxes
-       - Center-align checkboxes
-       - Maintain consistent spacing
-
-    3. Table formatting:
-       | Column 1 | Column 2 | Checkbox |
-       |:---------|:--------:|:--------:|
-       | Data 1   |  Value   |   [ ]    |
-       | Data 2   |  Value   |   [x]    |
-
-    4. Mandatory requirements:
-       - Preserve original headers
-       - Maintain consistent alignment
-       - Include header formatting line
-       - Respect data types per column
-       - Keep formulas in `code`
-       - Preserve data hierarchy
-
-    5. Special cell formatting:
-       - Numbers: right-aligned
-       - Text: left-aligned
-       - Checkboxes/Status: centered
-       - Formulas: in `code` and right-aligned
-
-    Return only the formatted markdown tables, without additional text or explanations.
-    Keep the visual structure as close as possible to the original spreadsheet.
+            You are a spreadsheet to Word table converter. Follow these STRICT rules:
+        
+            1. Table structure:
+               ┌────────────────┬──────────────┬─────────────────┐
+               │ **PLACA**      │ **CHASSI**   │ **RENAVAN**     │
+               ╞════════════════╪══════════════╪═════════════════╡
+               │ SUPRIMIDO      │ SUPRIMIDO    │ 9.582.647-3     │
+               ├────────────────┼──────────────┼─────────────────┤
+               │ SUPRIMIDO      │ SUPRIMIDO    │ 8.732.491-5     │
+               ├────────────────┼──────────────┼─────────────────┤
+               │ SUCATA...      │ 9BWSU21FX... │ 7.891.234-6     │
+               └────────────────┴──────────────┴─────────────────┘
+        
+            2. Formatting rules:
+               - Numbers: 8.732.491-5 (thousand separators)
+               - Currency: R$ 176.000,00 (ISO BRL format)
+               - Dates: 22/05/2025 (DD/MM/YYYY)
+               - Checkboxes: ☐ (unchecked) ☒ (checked) centered
+               - Formulas: *SUM(A1:B2)* (italic)
+               - Dropdowns: Value (Option1, Option2)
+               - Repetitive values: Keep exact duplicates
+        
+            3. Prohibited:
+               - Any non-table text
+               - Comments/notes/analysis
+               - Row placeholders (e.g., "...", "rows X-Y")
+               - Data modifications
+               - Column adjustments
+        
+            4. Data requirements:
+               - Include 100% of rows
+               - Maintain exact source order
+               - Preserve all duplicates
+               - Show full values (no truncation)
+               - Keep original capitalization
+        
+            Return ONLY the complete table using box-drawing characters.
     """,
         )
 
@@ -476,7 +478,7 @@ def mark_identifiers(data):
 
             if cell.upper() in ["TRUE", "FALSE", "VERDADEIRO", "FALSO"]:
                 is_checked = cell.upper() in ["TRUE", "VERDADEIRO"]
-                cell = "- [x]" if is_checked else "- [ ]"
+                cell = "☒" if is_checked else "☐"
 
             formatted_row.append(cell)
         formatted_data.append(formatted_row)

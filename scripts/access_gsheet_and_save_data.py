@@ -34,23 +34,17 @@ SCOPES = [
 
 def authenticate_google_sheets():
     """
-    Authenticate with Google Sheets using OAuth2 credentials from a JSON file.
-
-    This function handles the OAuth2 authentication flow:
-    1. Checks for existing credentials in token.pickle
-    2. Refreshes expired credentials if possible
-    3. Initiates new authentication flow if needed
-    4. Saves credentials for future use
-
-    Returns:
-        gspread.Client: Authorized gspread client instance for interacting with Google Sheets.
+    Authenticate with Google Sheets using OAuth2 credentials from environment variables.
     """
     creds = None
-    token_path = os.path.join("json", "token.pickle")
-    client_secrets_path = os.path.join(
-        "json",
-        "client_secret.json",
-    )
+    json_dir = "json"
+    
+    # Create json directory if it doesn't exist
+    if not os.path.exists(json_dir):
+        os.makedirs(json_dir)
+        print(f"Created directory: {json_dir}")
+    
+    token_path = os.path.join(json_dir, "token.pickle")
 
     if os.path.exists(token_path):
         with open(token_path, "rb") as token:
@@ -60,8 +54,18 @@ def authenticate_google_sheets():
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            with open(client_secrets_path, "r") as f:
-                client_config = json.load(f)
+            # Use environment variables directly
+            client_config = {
+                "installed": {
+                    "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+                    "project_id": os.getenv("GOOGLE_PROJECT_ID"),
+                    "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
+                    "token_uri": os.getenv("GOOGLE_TOKEN_URI"),
+                    "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_PROVIDER_CERT_URL"),
+                    "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                    "redirect_uris": ["http://localhost:8080"]
+                }
+            }
 
             flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
             print("Starting authentication process...")
@@ -91,6 +95,12 @@ def list_sheets_and_save_info(spreadsheet_id, output_file):
         gspread.SpreadsheetNotFound: If the specified spreadsheet ID is invalid or inaccessible.
         ValueError: If user input is invalid during worksheet selection.
     """
+    # Create output directory if it doesn't exist
+    output_dir = os.path.dirname(output_file)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        print(f"Created directory: {output_dir}")
+
     client = authenticate_google_sheets()
 
     try:
